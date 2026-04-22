@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import openai
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Groq CP Solver")
+app = FastAPI(title="Groq Answer API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,13 +44,19 @@ def fix_json_string(json_str: str) -> str:
 @app.post("/api/solve")
 async def solve_problem(request: ProblemRequest):
     try:
-        system_prompt = """You are an AI that answers questions with the final answer only. No explanations, no extra text.
+        system_prompt = """You are an AI that provides only the final answer. No explanations. 
 
-If the problem is a multiple-choice question, output only the correct option letter (e.g., "A").
+Output a valid JSON with a single key "answer".
 
-If the problem requires a code solution, output only the Python code.
+- For multiple-choice questions (A, B, C, D), output the correct option letter (e.g., "A").
+- For true/false questions, output "Đúng" or "Sai" (in Vietnamese).
+- For programming problems, output the complete Python code as a string.
 
-Your response must be a valid JSON with a single key "answer". Example: {"answer": "A"} or {"answer": "print(8)"}."""
+Examples:
+{"answer": "A"}
+{"answer": "Đúng"}
+{"answer": "print(8)"}
+"""
 
         user_prompt = f"Problem: {request.problem_statement}"
 
