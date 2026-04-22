@@ -36,44 +36,24 @@ class ProblemRequest(BaseModel):
     sample_output: str = ""
 
 def fix_json_string(json_str: str) -> str:
-    """Cố gắng sửa các lỗi JSON phổ biến như thiếu dấu phẩy, escape thừa."""
-    # Xóa comment nếu có
     json_str = re.sub(r'//.*', '', json_str)
     json_str = re.sub(r',\s*}', '}', json_str)
     json_str = re.sub(r',\s*]', ']', json_str)
-    # Thay thế escape không cần thiết
-    json_str = json_str.replace('\\n', '\n').replace('\\"', '"').replace("'''", '"""')
     return json_str
 
 @app.post("/api/solve")
 async def solve_problem(request: ProblemRequest):
     try:
-        system_prompt = """You are a world-class competitive programmer. Your output must be strictly valid JSON with exactly these keys: "analysis", "pseudocode", "solution_code", "complexity".
+        system_prompt = """You are an AI that answers questions with the final answer only. No explanations, no extra text.
 
-Rules for JSON:
-- Use double quotes for all keys and string values.
-- Escape double quotes inside strings with backslash: \\".
-- Do NOT include trailing commas.
-- The "solution_code" must be a single string with proper Python code (use triple quotes inside the string if needed).
-- Ensure the JSON is parseable by standard JSON parsers.
+If the problem is a multiple-choice question, output only the correct option letter (e.g., "A").
 
-Example output:
-{
-  "analysis": "The problem asks...",
-  "pseudocode": "Step 1: ...",
-  "solution_code": "def solve():\\n    return 8",
-  "complexity": "O(1) time, O(1) space"
-}"""
+If the problem requires a code solution, output only the Python code.
 
-        user_prompt = f"""Problem: {request.problem_statement}
-Input format: {request.input_format or "stdin"}
-Output format: {request.output_format or "stdout"}
-Constraints: {request.constraints or "none"}
-Sample: {request.sample_input or "none"} => {request.sample_output or "none"}
+Your response must be a valid JSON with a single key "answer". Example: {"answer": "A"} or {"answer": "print(8)"}."""
 
-Provide the solution in valid JSON as specified."""
+        user_prompt = f"Problem: {request.problem_statement}"
 
-        # Thử gọi API với response_format JSON
         try:
             response = client.chat.completions.create(
                 model=GROQ_MODEL,
@@ -87,28 +67,21 @@ Provide the solution in valid JSON as specified."""
             content = response.choices[0].message.content
             return json.loads(content)
         except openai.BadRequestError as e:
-            # Lỗi 400 do JSON invalid - lấy failed_generation từ error
             error_body = e.body if hasattr(e, 'body') else str(e)
             try:
                 error_data = json.loads(error_body) if isinstance(error_body, str) else error_body
                 failed_gen = error_data.get('error', {}).get('failed_generation')
                 if failed_gen:
-                    # Cố gắng sửa và parse lại
                     fixed = fix_json_string(failed_gen)
-                    try:
-                        return json.loads(fixed)
-                    except:
-                        # Nếu vẫn fail, trả về raw nhưng đã sửa
-                        return {"raw_response": failed_gen, "note": "JSON could not be parsed after fix attempt"}
+                    return json.loads(fixed)
             except:
                 pass
-            raise HTTPException(status_code=400, detail="Groq failed to generate valid JSON. Please try again.")
+            raise HTTPException(status_code=400, detail="JSON generation failed")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Handler cho Vercel
 from mangum import Mangum
 handler = Mangum(app)
