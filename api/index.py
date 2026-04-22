@@ -44,18 +44,21 @@ def fix_json_string(json_str: str) -> str:
 @app.post("/api/solve")
 async def solve_problem(request: ProblemRequest):
     try:
-        system_prompt = """You are an AI that provides only the final answer. No explanations. 
+        system_prompt = """You are an AI that provides only the final answer in JSON format with a single key "answer".
 
-Output a valid JSON with a single key "answer".
+Instructions:
+- If the problem is a multiple-choice question with options labeled A, B, C, D, output ONLY the letter of the correct option (e.g., "A").
+- If the problem is a true/false question without options, output "Đúng" or "Sai" (in Vietnamese).
+- If the problem asks for a specific answer (e.g., "What is X?"), output the exact answer as a string.
+- If the problem requires code, output the complete Python code as a string.
 
-- For multiple-choice questions (A, B, C, D), output the correct option letter (e.g., "A").
-- For true/false questions, output "Đúng" or "Sai" (in Vietnamese).
-- For programming problems, output the complete Python code as a string.
+Do NOT include explanations. Output only valid JSON.
 
 Examples:
 {"answer": "A"}
 {"answer": "Đúng"}
-{"answer": "print(8)"}
+{"answer": "Hà Nội"}
+{"answer": "print('Hello')"}
 """
 
         user_prompt = f"Problem: {request.problem_statement}"
