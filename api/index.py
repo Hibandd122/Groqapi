@@ -1,14 +1,13 @@
 import os
 import json
+import traceback
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import openai
 from fastapi.middleware.cors import CORSMiddleware
 
-# Khởi tạo ứng dụng FastAPI
-app = FastAPI(title="Groq Competitive Programming API")
+app = FastAPI(title="Groq CP Solver")
 
-# Cho phép CORS - quan trọng để UserScript gọi được API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,20 +16,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Lấy API key từ biến môi trường Vercel
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY environment variable not set")
 
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-# Khởi tạo client Groq
 client = openai.OpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Mô hình dữ liệu đầu vào
 class ProblemRequest(BaseModel):
     problem_statement: str
     input_format: str = ""
@@ -41,16 +37,13 @@ class ProblemRequest(BaseModel):
 
 @app.post("/api/solve")
 async def solve_problem(request: ProblemRequest):
-    """
-    Nhận đề bài và trả về lời giải chi tiết từ Groq.
-    """
     try:
         system_prompt = """You are a world-class competitive programmer with extensive experience in ACM/ICPC and Codeforces. Your task is to analyze and solve algorithmic problems with precision, efficiency, and clarity.
 
 You will follow a structured approach:
 1. **Problem Analysis**: Understand the problem, identify edge cases, and restate the problem in your own words.
 2. **Algorithm Design**: Choose the most suitable algorithms and data structures based on the constraints.
-3. **Step-by-Step Reasoning (Chain-of-Thought)**: Provide a detailed, step-by-step reasoning process for your solution. Use at least 3 reasoning steps. In your reasoning, explore alternative answers and be aware of your limitations.
+3. **Step-by-Step Reasoning (Chain-of-Thought)**: Provide a detailed, step-by-step reasoning process for your solution. Use at least 3 reasoning steps.
 4. **Pseudocode**: Write clear, language-agnostic pseudocode that captures the logic.
 5. **Solution Code**: Provide the complete Python 3 solution code. The code must be clean, well-commented, and follow PEP 8 guidelines.
 6. **Complexity Analysis**: State the time and space complexity of your solution.
@@ -90,11 +83,17 @@ Please solve the problem and provide the output in the specified JSON format."""
         content = response.choices[0].message.content
         return json.loads(content)
     except json.JSONDecodeError:
-        # Nếu Groq không trả về JSON hợp lệ, trả về raw text
         return {"raw_response": response.choices[0].message.content}
     except Exception as e:
+        # In lỗi ra console (sẽ hiện trong Vercel logs)
+        print("Error:", str(e))
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-# Handler cho Vercel (ASGI)
-from mangum import Mangum
-handler = Mangum(app)
+# Handler cho Vercel
+try:
+    from mangum import Mangum
+    handler = Mangum(app)
+except ImportError:
+    print("Mangum not installed. Please add 'mangum' to requirements.txt")
+    raise
