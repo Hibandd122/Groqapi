@@ -1,6 +1,6 @@
 import os
 import json
-import traceback
+import re
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import openai
@@ -35,65 +35,80 @@ class ProblemRequest(BaseModel):
     sample_input: str = ""
     sample_output: str = ""
 
+def fix_json_string(json_str: str) -> str:
+    """Cố gắng sửa các lỗi JSON phổ biến như thiếu dấu phẩy, escape thừa."""
+    # Xóa comment nếu có
+    json_str = re.sub(r'//.*', '', json_str)
+    json_str = re.sub(r',\s*}', '}', json_str)
+    json_str = re.sub(r',\s*]', ']', json_str)
+    # Thay thế escape không cần thiết
+    json_str = json_str.replace('\\n', '\n').replace('\\"', '"').replace("'''", '"""')
+    return json_str
+
 @app.post("/api/solve")
 async def solve_problem(request: ProblemRequest):
     try:
-        system_prompt = """You are a world-class competitive programmer with extensive experience in ACM/ICPC and Codeforces. Your task is to analyze and solve algorithmic problems with precision, efficiency, and clarity.
+        system_prompt = """You are a world-class competitive programmer. Your output must be strictly valid JSON with exactly these keys: "analysis", "pseudocode", "solution_code", "complexity".
 
-You will follow a structured approach:
-1. **Problem Analysis**: Understand the problem, identify edge cases, and restate the problem in your own words.
-2. **Algorithm Design**: Choose the most suitable algorithms and data structures based on the constraints.
-3. **Step-by-Step Reasoning (Chain-of-Thought)**: Provide a detailed, step-by-step reasoning process for your solution. Use at least 3 reasoning steps.
-4. **Pseudocode**: Write clear, language-agnostic pseudocode that captures the logic.
-5. **Solution Code**: Provide the complete Python 3 solution code. The code must be clean, well-commented, and follow PEP 8 guidelines.
-6. **Complexity Analysis**: State the time and space complexity of your solution.
+Rules for JSON:
+- Use double quotes for all keys and string values.
+- Escape double quotes inside strings with backslash: \\".
+- Do NOT include trailing commas.
+- The "solution_code" must be a single string with proper Python code (use triple quotes inside the string if needed).
+- Ensure the JSON is parseable by standard JSON parsers.
 
-Output Format: You must ALWAYS respond in valid JSON format with the following keys: 'analysis', 'pseudocode', 'solution_code', 'complexity'."""
+Example output:
+{
+  "analysis": "The problem asks...",
+  "pseudocode": "Step 1: ...",
+  "solution_code": "def solve():\\n    return 8",
+  "complexity": "O(1) time, O(1) space"
+}"""
 
-        user_prompt = f"""### Problem Statement:
-{request.problem_statement}
+        user_prompt = f"""Problem: {request.problem_statement}
+Input format: {request.input_format or "stdin"}
+Output format: {request.output_format or "stdout"}
+Constraints: {request.constraints or "none"}
+Sample: {request.sample_input or "none"} => {request.sample_output or "none"}
 
-### Input Format:
-{request.input_format if request.input_format else "Standard input (stdin)"}
+Provide the solution in valid JSON as specified."""
 
-### Output Format:
-{request.output_format if request.output_format else "Standard output (stdout)"}
+        # Thử gọi API với response_format JSON
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            content = response.choices[0].message.content
+            return json.loads(content)
+        except openai.BadRequestError as e:
+            # Lỗi 400 do JSON invalid - lấy failed_generation từ error
+            error_body = e.body if hasattr(e, 'body') else str(e)
+            try:
+                error_data = json.loads(error_body) if isinstance(error_body, str) else error_body
+                failed_gen = error_data.get('error', {}).get('failed_generation')
+                if failed_gen:
+                    # Cố gắng sửa và parse lại
+                    fixed = fix_json_string(failed_gen)
+                    try:
+                        return json.loads(fixed)
+                    except:
+                        # Nếu vẫn fail, trả về raw nhưng đã sửa
+                        return {"raw_response": failed_gen, "note": "JSON could not be parsed after fix attempt"}
+            except:
+                pass
+            raise HTTPException(status_code=400, detail="Groq failed to generate valid JSON. Please try again.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
-### Constraints:
-{request.constraints if request.constraints else "None provided."}
-
-### Sample Input:
-{request.sample_input if request.sample_input else "None provided."}
-
-### Sample Output:
-{request.sample_output if request.sample_output else "None provided."}
-
-Please solve the problem and provide the output in the specified JSON format."""
-
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-
-        content = response.choices[0].message.content
-        return json.loads(content)
-    except json.JSONDecodeError:
-        return {"raw_response": response.choices[0].message.content}
     except Exception as e:
-        # In lỗi ra console (sẽ hiện trong Vercel logs)
-        print("Error:", str(e))
-        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 # Handler cho Vercel
-try:
-    from mangum import Mangum
-    handler = Mangum(app)
-except ImportError:
-    print("Mangum not installed. Please add 'mangum' to requirements.txt")
-    raise
+from mangum import Mangum
+handler = Mangum(app)
