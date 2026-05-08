@@ -7,9 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY missing")
+GROQ_API_KEY = "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"
 client = openai.OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
