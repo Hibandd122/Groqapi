@@ -9,7 +9,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 
 GROQ_API_KEY = "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"
 client = openai.OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 class ProblemRequest(BaseModel):
     problem_statement: str
